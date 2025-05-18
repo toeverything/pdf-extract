@@ -24,6 +24,7 @@ use std::rc::Rc;
 use std::marker::PhantomData;
 use std::result::Result;
 use log::{warn, error};
+mod cmaps;
 mod core_fonts;
 mod glyphnames;
 mod zapfglyphnames;
@@ -977,8 +978,10 @@ impl<'a> PdfCIDFont<'a> {
             &Object::Name(ref name) => {
                 let name = pdf_to_utf8(name);
                 dlog!("encoding {:?}", name);
-                if name == "Identity-H" || name == "Identity-V" || name.contains("-UCS2-") {
+                if name == "Identity-H" || name == "Identity-V"  {
                     ByteMapping { codespace: vec![CodeRange{width: 2, start: 0, end: 0xffff }], cid: vec![CIDRange{ src_code_lo: 0, src_code_hi: 0xffff, dst_CID_lo: 0 }]}
+                } else if let Some(cmap) = cmaps::get_cmap(&name) {
+                    adobe_cmap_parser::get_byte_mapping(&cmap).unwrap()
                 } else {
                     panic!("unsupported encoding {}", name);
                 }

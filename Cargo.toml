@@ -7,7 +7,7 @@ keywords = ["pdf2text", "text", "pdf", "pdf2txt"]
 license = "MIT"
 name = "pdf-extract"
 repository = "https://github.com/jrmuizel/pdf-extract"
-version = "0.8.2"
+version = "0.10.0"
 include = ["src/**/*", "README.md"]
 
 [profile.release]
@@ -17,13 +17,13 @@ debug = true
 adobe-cmap-parser = { git = "https://github.com/darkskygit/adobe-cmap-parser" }
 encoding_rs = "0.8.35"
 euclid = "0.20.14"
-lopdf = {version = "0.36.0", default-features = false}
+lopdf = {version = "0.38.0", default-features = false}
 postscript = "0.19"
 rust-embed = "8.7.2"
 type1-encoding-parser = "0.1.0"
-unicode-normalization = "0.1.24"
-cff-parser = "0.1.0"
-log = "0.4.27"
+unicode-normalization = "0.1.25"
+cff-parser = "0.2.0"
+log = "0.4.29"
 
 [dev-dependencies]
 ureq = "2.12.1"

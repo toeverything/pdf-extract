@@ -23,7 +23,7 @@ use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use std::marker::PhantomData;
 use std::result::Result;
-use log::{warn, error};
+use log::{warn, error, debug};
 mod cmaps;
 mod core_fonts;
 mod glyphnames;
@@ -412,24 +412,27 @@ impl<'a> PdfSimpleFont<'a> {
                     let s = get_contents(s);
                     if subtype == "Type1C" {
                         let table = cff_parser::Table::parse(&s).unwrap();
-                        let charset = table.charset.get_table();
-                        let encoding = table.encoding.get_table();
-                        let mut mapping = HashMap::new();
-                        for i in 0..encoding.len().min(charset.len()) {
-                            let cid = encoding[i];
-                            let sid = charset[i];
+                        //use std::io::Write;
+                        //File::create(format!("/tmp/{}", base_name)).unwrap().write_all(&s);
+                        
+                        let encoding = table.encoding.get_code_to_sid_table(&table.charset);
+
+                        let mapping: HashMap<u32, String> = encoding.into_iter().filter_map(|(cid, sid)| {
                             let name = cff_parser::string_by_id(&table, sid).unwrap();
+                            if name == ".notdef" {
+                                return None;
+                            }
                             let unicode = glyphnames::name_to_unicode(&name).or_else(|| {
                                 zapfglyphnames::zapfdigbats_names_to_unicode(name)
                             });
-                            if let Some(unicode) = unicode {
-                                let str = String::from_utf16(&[unicode]).unwrap();
-                                mapping.insert(cid as u32, str);
+                            if unicode.is_none() {
+                                warn!("Couldn't find unicode for {}", name);
+                                return None;
                             }
-                        }
+                            let str = String::from_utf16(&[unicode.unwrap()]).unwrap();
+                            Some((cid as u32, str))
+                        }).collect();
                         unicode_map = Some(mapping);
-                        //
-                        //File::create(format!("/tmp/{}", base_name)).unwrap().write_all(&s);
                     }
 
                     //
@@ -827,12 +830,12 @@ impl<'a> PdfFont for PdfSimpleFont<'a> {
             let s = unicode_map.get(&char);
             let s = match s {
                 None => {
-                    warn!("missing char {:?} in unicode map {:?} for {:?}", char, unicode_map, self.font);
+                    debug!("missing char {:?} in unicode map {:?} for {:?}", char, unicode_map, self.font);
                     // some pdf's like http://arxiv.org/pdf/2312.00064v1 are missing entries in their unicode map but do have
                     // entries in the encoding.
                     let encoding = self.encoding.as_ref().map(|x| &x[..]).expect("missing unicode map and encoding");
                     let s = to_utf8(encoding, &slice);
-                    warn!("falling back to encoding {} -> {:?}", char, s);
+                    debug!("falling back to encoding {} -> {:?}", char, s);
                     s
                 }
                 Some(s) => { s.clone() }
@@ -877,12 +880,12 @@ impl<'a> PdfFont for PdfType3Font<'a> {
             let s = unicode_map.get(&char);
             let s = match s {
                 None => {
-                    warn!("missing char {:?} in unicode map {:?} for {:?}", char, unicode_map, self.font);
+                    debug!("missing char {:?} in unicode map {:?} for {:?}", char, unicode_map, self.font);
                     // some pdf's like http://arxiv.org/pdf/2312.00577v1 are missing entries in their unicode map but do have
                     // entries in the encoding.
                     let encoding = self.encoding.as_ref().map(|x| &x[..]).expect("missing unicode map and encoding");
                     let s = to_utf8(encoding, &slice);
-                    warn!("falling back to encoding {} -> {:?}", char, s);
+                    debug!("falling back to encoding {} -> {:?}", char, s);
                     s
                 }
                 Some(s) => { s.clone() }
@@ -2243,9 +2246,9 @@ fn maybe_decrypt(doc: &mut Document) -> Result<(), OutputError> {
     Ok(())
 }
 
-pub fn extract_text_encrypted<P: std::convert::AsRef<std::path::Path>, PW: AsRef<[u8]>>(
+pub fn extract_text_encrypted<P: std::convert::AsRef<std::path::Path>>(
     path: P,
-    password: PW,
+    password: &str,
 ) -> Result<String, OutputError> {
     let mut s = String::new();
     {
@@ -2267,9 +2270,9 @@ pub fn extract_text_from_mem(buffer: &[u8]) -> Result<String, OutputError> {
     Ok(s)
 }
 
-pub fn extract_text_from_mem_encrypted<PW: AsRef<[u8]>>(
+pub fn extract_text_from_mem_encrypted(
     buffer: &[u8],
-    password: PW,
+    password: &str,
 ) -> Result<String, OutputError> {
     let mut s = String::new();
     {
@@ -2306,7 +2309,7 @@ pub fn extract_text_by_pages<P: std::convert::AsRef<std::path::Path>>(path: P) -
     Ok(v)
 }
 
-pub fn extract_text_by_pages_encrypted<P: std::convert::AsRef<std::path::Path>, PW: AsRef<[u8]>>(path: P, password: PW) -> Result<Vec<String>, OutputError> {
+pub fn extract_text_by_pages_encrypted<P: std::convert::AsRef<std::path::Path>>(path: P, password: &str) -> Result<Vec<String>, OutputError> {
     let mut v = Vec::new();
     {
         let mut doc = Document::load(path)?;
@@ -2334,7 +2337,7 @@ pub fn extract_text_from_mem_by_pages(buffer: &[u8]) -> Result<Vec<String>, Outp
     Ok(v)
 }
 
-pub fn extract_text_from_mem_by_pages_encrypted<PW: AsRef<[u8]>>(buffer: &[u8], password: PW) -> Result<Vec<String>, OutputError> {
+pub fn extract_text_from_mem_by_pages_encrypted(buffer: &[u8], password: &str) -> Result<Vec<String>, OutputError> {
     let mut v = Vec::new();
     {
         let mut doc = Document::load_mem(buffer)?;
@@ -2361,10 +2364,10 @@ fn get_inherited<'a, T: FromObj<'a>>(doc: &'a Document, dict: &'a Dictionary, ke
     }
 }
 
-pub fn output_doc_encrypted<PW: AsRef<[u8]>>(
+pub fn output_doc_encrypted(
     doc: &mut Document,
     output: &mut dyn OutputDev,
-    password: PW,
+    password: &str,
 ) -> Result<(), OutputError> {
     doc.decrypt_raw(password)?;
     output_doc(doc, output)
